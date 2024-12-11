@@ -105,9 +105,8 @@ Resources:
       DBName: postgres
       MasterUsername: postgres
       MasterUserPassword: ThisIsSpartan
-      DBInstanceIdentifier: stock_perfomances
       AllocatedStorage: 20
-      DBInstanceClass: db.t2.micro
+      DBInstanceClass: db.t4g.micro
       Engine: postgres
       VPCSecurityGroups: [ !Ref StockPerformancesSG ]
       PubliclyAccessible: true
@@ -134,11 +133,40 @@ Resources:
           SubnetId: !Ref Subnet1
           GroupSet: [ !Ref StockPerformancesSG ]
 
+  MyRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StockPerformancesVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties: 
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  RouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref MyRouteTable
+
+  RouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet2
+      RouteTableId: !Ref MyRouteTable
+
+  RouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet3
+      RouteTableId: !Ref MyRouteTable
 
 Outputs:
-  RDSInstanceEndpoint:
-    Description: "RDS Instance Endpoint"
-    Value: !GetAtt StockPerformancesRDS.Endpoint.Address
+  EC2InstanceId:
+    Description: "EC2 Instance ID"
+    Value: !Ref StockPerformancesEC2
 
   EC2PublicIP:
     Description: "EC2 Instance Public IP"
@@ -147,3 +175,7 @@ Outputs:
   RDSInstanceIdentifier:
     Description: "RDS Instance Identifier"
     Value: !Ref StockPerformancesRDS
+
+  RDSInstanceEndpoint:
+    Description: "RDS Instance Endpoint"
+    Value: !GetAtt StockPerformancesRDS.Endpoint.Address
