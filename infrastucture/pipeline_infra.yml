@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template for S3, DynamoDB, VPC, RDS, and EC2
+
+Resources:
+  TweetsS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: tweets-mbd
+
+  StockPricesS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: stockprices-mbd
+
+  TweetsDynamoDB:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: tweets-mbd
+      AttributeDefinitions:
+        - AttributeName: datetime
+          AttributeType: S
+      KeySchema:
+        - AttributeName: datetime
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  StockPricesDynamoDB:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: stockprices-mbd
+      AttributeDefinitions:
+        - AttributeName: datetime
+          AttributeType: S
+      KeySchema:
+        - AttributeName: datetime
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  StockPerformancesVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: stock_perfomances
+
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref StockPerformancesVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  Subnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref StockPerformancesVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-1a
+
+  Subnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref StockPerformancesVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: us-east-1b
+
+  Subnet3:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref StockPerformancesVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: us-east-1c
+
+  StockPerformancesSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow SSH and PostgreSQL
+      VpcId: !Ref StockPerformancesVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  StockPerformancesRDS:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBName: postgres
+      MasterUsername: postgres
+      MasterUserPassword: ThisIsSpartan
+      DBInstanceIdentifier: stock_perfomances
+      AllocatedStorage: 20
+      DBInstanceClass: db.t2.micro
+      Engine: postgres
+      VPCSecurityGroups: [ !Ref StockPerformancesSG ]
+      PubliclyAccessible: true
+      DBSubnetGroupName: !Ref StockPerformancesDBSubnetGroup
+
+  StockPerformancesDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Subnet group for stock performances database
+      SubnetIds: 
+        - !Ref Subnet1
+        - !Ref Subnet2
+        - !Ref Subnet3
+
+  StockPerformancesEC2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: t2.large
+      KeyName: stock_perfomance_key
+      ImageId: ami-0d5eff06f840b45e9 # Ubuntu Server 20.04 LTS
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: '0'
+          SubnetId: !Ref Subnet1
+          GroupSet: [ !Ref StockPerformancesSG ]
+
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: "RDS Instance Endpoint"
+    Value: !GetAtt StockPerformancesRDS.Endpoint.Address
+
+  EC2PublicIP:
+    Description: "EC2 Instance Public IP"
+    Value: !GetAtt StockPerformancesEC2.PublicIp
+
+  RDSInstanceIdentifier:
+    Description: "RDS Instance Identifier"
+    Value: !Ref StockPerformancesRDS
