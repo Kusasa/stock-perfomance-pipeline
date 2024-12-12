@@ -126,12 +126,19 @@ Resources:
     Properties:
       InstanceType: t2.large
       KeyName: stock_perfomance_key
-      ImageId: ami-0d5eff06f840b45e9 # Ubuntu Server 20.04 LTS
+      ImageId: ami-0e2c8caa4b6378d8c
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
           DeviceIndex: '0'
           SubnetId: !Ref Subnet1
           GroupSet: [ !Ref StockPerformancesSG ]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+      Tags:
+        - Key: Name
+          Value: Stock Performances
 
   MyRouteTable:
     Type: AWS::EC2::RouteTable
