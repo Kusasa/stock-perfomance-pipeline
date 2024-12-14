@@ -71,13 +71,58 @@ This data pipeline implemented using Apache Airflow, containerized with Docker, 
     deploy.sh
     ```
 
-6. **Update the Airflow connections and variables**:
+6. **Install Docker, Airflow and dependencies into EC2 Instance**:  
+    - Connect to EC2 instance via ssh:  
+    
+    On windows:  
+    ```bash
+    ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP%
+    ```
+      On linux:  
+    ```bash
+    ssh -i ~\.ssh\stock_perfomance_key.pem ubuntu@$EC2PublicIP
+    ```
+    - Install docker, airflow and libraries as below:
+    ```bash
+    # Update and install required packages
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
+
+    # Create a directory and download the Docker GPG key
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
+
+    # Set correct permissions and add Docker repository
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # Update repositories and install Docker
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    # Change to the pipeline directory and download airflow docker-compose file
+    cd ~/pipeline
+    echo -e "AIRFLOW_UID=$(id -u)" > .env
+    curl -LfO 'https://airflow.apache.org/docs/apache-airflow/stable/docker-compose.yaml'
+
+    # Initialize and start Airflow
+    sudo docker compose up airflow-init
+    sudo docker compose up -d
+
+    # Connect to the pipeline-airflow-webserver-1 container and install necessary packages
+    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "curl -O https://repo.anaconda.com/archive/Anaconda3-2023.03-Linux-x86_64.sh"
+    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "bash Anaconda3-2023.03-Linux-x86_64.sh -b"
+    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "echo 'export PATH=~/anaconda3/bin:$PATH' >> ~/.bashrc && source ~/.bashrc"
+    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "pip install awscli && pip install airflow && pip install apache-airflow-providers-amazon yfinance --upgrade --no-cache-dir"
+    ```
+
+7. **Update the Airflow connections and variables**:
     - Access the Airflow web UI and declare the aws connections and dag environment variables.
 
-7. **Run the pipeline**:
+8. **Run the pipeline**:
     - Access the Airflow web UI and trigger the DAG manually or wait for the scheduled run.
 
-8. **Connect PowerBI to pipeline output data and create the dashboard**:
+9. **Connect PowerBI to pipeline output data and create the dashboard**:
     - Connect the AWS RDS Postgresql data source to PowerBI,
     - Create a stocks perfomance [dashboard](/dashboard/).
 

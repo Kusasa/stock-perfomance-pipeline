@@ -9,6 +9,7 @@ EOF
 
 echo "Delete pipeline stack"
 aws cloudformation delete-stack --stack-name stockPerfomancesInfra
+aws cloudformation wait stack-delete-complete --stack-name stockPerfomancesInfra
 
 REM Delete keypair
 aws ec2 delete-key-pair --key-name stock_perfomance_key --region us-east-1

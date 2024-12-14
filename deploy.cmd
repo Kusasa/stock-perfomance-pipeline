@@ -21,44 +21,23 @@ REM Add host fingerprint of EC2 instance
 ssh-keyscan -t ed25519 %EC2PublicIP% >> %USERPROFILE%\.ssh\known_hosts
 
 REM Connect to the EC2 instance using SSH and create the home directory of the pipeline
+ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP% mkdir ~/pipeline
 ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP% ^
-"mkdir -p ~/pipeline ~/pipeline/dags ~/pipeline/logs ~/pipeline/plugins"
+"mkdir -p ~/pipeline/dags ~/pipeline/logs ~/pipeline/plugins ~/pipeline/examples"
 
 REM Copy dag folder with its contents to the dags folder in the remote server
-scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\dag ubuntu@%EC2PublicIP%:~/pipeline/dags
+scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\dag\* ubuntu@%EC2PublicIP%:~/pipeline/dags
+scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\infrastructure\requirements.txt ubuntu@%EC2PublicIP%:~/pipeline/requirements.txt
+scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\infrastructure\Dockerfile ubuntu@%EC2PublicIP%:~/pipeline/Dockerfile
+scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\infrastructure\docker-compose.yaml ubuntu@%EC2PublicIP%:~/pipeline/docker-compose.yaml
+scp -i %USERPROFILE%\.ssh\stock_perfomance_key.pem -r .\examples\most_popular_tweets_2024-12-07T21_17_35.json ubuntu@%EC2PublicIP%:~/pipeline/examples/most_popular_tweets_2024-12-07T21_17_35.json
 
-REM Connect to the remote server, install docker engine and deploy the airflow docker containers with its required libraries
-ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP% ^
-"sudo apt-get update && \
-sudo apt-get install ca-certificates curl && \
-sudo install -m 0755 -d /etc/apt/keyrings && \
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
-sudo chmod a+r /etc/apt/keyrings/docker.asc && \
-echo deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-sudo apt-get update && \
-sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
-cd ~/pipeline && \
-echo -e AIRFLOW_UID=$(id -u) > .env && \
-curl -LfO 'https://airflow.apache.org/docs/apache-airflow/stable/docker-compose.yaml' && \
-docker-compose up airflow-init && \
-docker-compose up -d"
-
-REM Connect to the airflow-webserver-1 container and install necessary packages
-ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP% ^
-"docker exec -it airflow-webserver-1 /bin/bash -c \
-'curl -O https://repo.anaconda.com/archive/Anaconda3-2023.03-Linux-x86_64.sh && \
-bash Anaconda3-2023.03-Linux-x86_64.sh -b && \
-echo export PATH=~/anaconda3/bin:$PATH >> ~/.bashrc && \
-source ~/.bashrc && \
-conda install -c conda-forge awscli && \
-conda install -c conda-forge airflow && \
-pip install apache-airflow-providers-amazon && \
-pip install yfinance --upgrade --no-cache-dir && \
-exit'"
+REM Install Docker, Airflow containers and python dependencies
+ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP% "bash -s" < .\infrastructure\docker_airflow.sh
 
 REM Set airflow connections and variables
-echo Connect to the airflow webserver using IP %EC2PublicIP% and port 8080 and do the following:
+echo WAIT 3 MINUTES FOR THE AIRFLOW SERVICES TO FULLY START - Then connect to the airflow webserver using IP %EC2PublicIP% and port 8080 and do the following:
 echo Create the aws_rds connection ID for the RDS Instance Endpoint: %RDSInstanceEndpoint%
 echo create the aws_default connection
-echo Create the environment variable for the RDS Cluster ID named rds_cluster_id: %RDSInstanceIdentifier%
-echo create the environment variables: x_bearer_token, aws_access_key_id, aws_secret_access_key, pg_user, pg_pass
+echo Creating the environment variable for the RDS Cluster ID named rds_cluster_id: %RDSInstanceIdentifier%
+echo create the environment variables: x_bearer_token, aws_access_key_id, aws_secret_access_key

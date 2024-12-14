@@ -1,0 +1,10 @@
+awscli
+apache-airflow
+apache-airflow-providers-amazon
+apache-airflow-providers-postgres
+yfinance
+psycopg2-binary
+apache-airflow
+apache-airflow-providers-celery
+pyOpenSSL>=22.0.0
+cryptography>=36.0.0
