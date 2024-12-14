@@ -1,22 +1,17 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
-from airflow.providers.amazon.aws.operators.rds import RDSDataExecuteStatementOperator
+from airflow.providers.postgres.operators.postgres import PostgresOperator
 from datetime import datetime
 from stock_helper_functions import x_fetcher, x_transformer, x_insertor, x_sentiment, x_overall_popular_sentiment, \
 stock_fetcher, stock_transformer, stock_insertor, data_joiner, sns_alert
-from airflow.models import Variable
 
-
-pg_user = Variable.get("pg_user")
-pg_pass = Variable.get("pg_pass")
-rds_cluster_id  = Variable.get("rds_cluster_id")
 
 # Define the default_args for the DAG
 default_args = {
     'owner': 'airflow',
     'start_date': datetime(2023, 12, 1),
-    'retries': 1
+    'retries': 0
 }
 
 # Define the DAG
@@ -24,9 +19,10 @@ stock_perfomance = DAG(
     'stock_performance',
     default_args=default_args,
     description='DAG for stock performance',
-    schedule_interval='@hourly'#,
-    #on_failure_callback= sns_alert("failure"),
-    #on_success_callback= sns_alert("success")
+    schedule_interval='@hourly',
+    catchup=False,
+    on_failure_callback= sns_alert("failure"),
+    on_success_callback= sns_alert("success")
 )
 
 # Define the tasks
@@ -40,7 +36,7 @@ stage_most_popular_tweets = S3CreateObjectOperator(
     task_id='stage_most_popular_tweets',
     aws_conn_id='aws_default',
     s3_bucket='tweets-mbd',
-    s3_key="{{ macros.datetime.now().strftime('%Y-%m-%dT%H:%M:%S') }}.json",
+    s3_key="stock_popular_tweets_{{ macros.datetime.now().strftime('%Y-%m-%dT%H:%M:%S') }}.json",
     data="{{ task_instance.xcom_pull(task_ids='fetch_most_popular_tweets') }}",
     replace=True,
     dag=stock_perfomance
@@ -48,25 +44,29 @@ stage_most_popular_tweets = S3CreateObjectOperator(
 
 transform_most_popular_tweets = PythonOperator(
     task_id='transform_most_popular_tweets',
-    python_callable=lambda: x_transformer(fetch_most_popular_tweets.output),
+    python_callable=lambda **kwargs: x_transformer(kwargs['ti'].xcom_pull(task_ids='fetch_most_popular_tweets')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
 insert_transformed_tweets = PythonOperator(
     task_id='insert_transformed_tweets',
-    python_callable=lambda: x_insertor(transform_most_popular_tweets.output),
+    python_callable=lambda **kwargs: x_insertor(kwargs['ti'].xcom_pull(task_ids='transform_most_popular_tweets')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
 sentiment_analysis_of_tweets = PythonOperator(
     task_id='sentiment_analysis_of_tweets',
-    python_callable=lambda: x_sentiment(transform_most_popular_tweets.output),
+    python_callable=lambda **kwargs: x_sentiment(kwargs['ti'].xcom_pull(task_ids='transform_most_popular_tweets')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
 overall_popular_sentiment = PythonOperator(
     task_id='overall_popular_sentiment',
-    python_callable=lambda: x_overall_popular_sentiment(sentiment_analysis_of_tweets.output),
+    python_callable=lambda **kwargs: x_overall_popular_sentiment(kwargs['ti'].xcom_pull(task_ids='sentiment_analysis_of_tweets')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
@@ -80,7 +80,7 @@ stage_stockprice_data = S3CreateObjectOperator(
     task_id='stage_stockprice_data',
     aws_conn_id='aws_default',
     s3_bucket='stockprices-mbd',
-    s3_key="{{ macros.datetime.now().strftime('%Y-%m-%dT%H:%M:%S') }}.json",
+    s3_key="stock_metrics_{{ macros.datetime.now().strftime('%Y-%m-%dT%H:%M:%S') }}.json",
     data="{{ task_instance.xcom_pull(task_ids='fetch_stockprice_data') }}",
     replace=True,
     dag=stock_perfomance
@@ -88,23 +88,29 @@ stage_stockprice_data = S3CreateObjectOperator(
 
 transform_stockprice_data = PythonOperator(
     task_id='transform_stockprice_data',
-    python_callable=lambda: stock_transformer(fetch_stockprice_data.output),
+    python_callable=lambda **kwargs: stock_transformer(kwargs['ti'].xcom_pull(task_ids='fetch_stockprice_data')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
 insert_transformed_stockprice = PythonOperator(
     task_id='insert_transformed_stockprice',
-    python_callable=lambda: stock_insertor(transform_stockprice_data.output),
+    python_callable=lambda **kwargs: stock_insertor(kwargs['ti'].xcom_pull(task_ids='transform_stockprice_data')),
+    provide_context=True,
     dag=stock_perfomance
 )
 
 join_aggregated_data = PythonOperator(
     task_id='join_aggregated_data',
-    python_callable=lambda: data_joiner(overall_popular_sentiment.output, transform_stockprice_data.output),
+    python_callable=lambda **kwargs: data_joiner(
+        kwargs['ti'].xcom_pull(task_ids='overall_popular_sentiment'),
+        kwargs['ti'].xcom_pull(task_ids='transform_stockprice_data')
+    ),
+    provide_context=True,
     dag=stock_perfomance
 )
 
-load_aggregated_data = RDSDataExecuteStatementOperator(
+load_aggregated_data = PostgresOperator(
     task_id='load_aggregated_data',
     sql="""
         CREATE TABLE IF NOT EXISTS stock_performance (
@@ -115,22 +121,18 @@ load_aggregated_data = RDSDataExecuteStatementOperator(
             ticker VARCHAR(255),
             volume BIGINT
         );
-        INSERT INTO stock_performance (datetime, stock_name, popular_sentiment, price, ticker, volume) \
-        VALUES (:datetime, :stock_name, :popular_sentiment, :price, :ticker, :volume);
+        INSERT INTO stock_performance (datetime, stock_name, popular_sentiment, price, ticker, volume)
+        VALUES (
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["datetime"] }}',
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["stock_name"] }}',
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["popular_sentiment"] }}',
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["price"] }}',
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["ticker"] }}',
+            '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["volume"] }}'
+        );
     """,
-    parameters=[
-        {'name': 'datetime', 'value': {'stringValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["datetime"] }}'}},
-        {'name': 'stock_name', 'value': {'stringValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["stock_name"] }}'}},
-        {'name': 'popular_sentiment', 'value': {'stringValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["popular_sentiment"] }}'}},
-        {'name': 'price', 'value': {'doubleValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["price"] }}'}},
-        {'name': 'ticker', 'value': {'stringValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["ticker"] }}'}},
-        {'name': 'volume', 'value': {'longValue': '{{ task_instance.xcom_pull(task_ids="join_aggregated_data")["volume"] }}'}}
-    ],
-    database= 'postgres',
-    resource_arn= f'arn:aws:rds:us-east-1:123456789012:cluster:{rds_cluster_id}',
-    username = pg_user,
-    password = pg_pass,
-    aws_conn_id='aws_rds',
+    postgres_conn_id='aws_rds',
+    database='postgres',
     dag=stock_perfomance
 )
 

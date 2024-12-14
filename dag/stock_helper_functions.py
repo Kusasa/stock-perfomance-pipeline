@@ -9,6 +9,7 @@ import numpy as np
 import psycopg2
 import logging
 from airflow.models import Variable
+import sys
 
 
 #-------------------------------------HELPER FUNCTIONS
@@ -42,6 +43,11 @@ def x_fetcher(stock_name = "#Amazon"):
             
             #print(f"Most popular tweets: {most_popular_tweets['text']}\nRetweets: {most_popular_tweets['public_metrics']['retweet_count']}")
             return most_popular_tweets
+    elif response.status_code == 429:
+        sys.path.append('/opt/airflow/dags')
+        with open("/opt/airflow/dags/most_popular_tweets_2024-12-07T21_17_35.json", 'r') as file: 
+            most_popular_tweets = json.load(file)
+        return most_popular_tweets
     else:
         print(f"Failed to fetch tweets: {response.status_code} - {response.text}")
         raise Exception(f"Failed to fetch tweets: {response.status_code} - {response.text}")
@@ -232,11 +238,7 @@ def sns_alert(status):
 
 #-------------------------------------TEST FUNCTIONS
 if __name__ == "__main__":
-    try:
-        most_popular_tweets = x_fetcher()
-    except:
-        with open("..\examples\most_popular_tweets_2024-12-07T21_17_35.json", 'r') as file: 
-            most_popular_tweets = json.load(file)
+    most_popular_tweets = x_fetcher()
     stager(most_popular_tweets, "tweets-mbd", "most_popular_stock_tweets")
     transformed_tweets = x_transformer(most_popular_tweets)
     x_insertor(transformed_tweets)
