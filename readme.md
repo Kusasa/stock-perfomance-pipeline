@@ -1,10 +1,10 @@
-# Data Pipeline
+# The Stock Perfomance ETL Pipeline
 
-This data pipeline implemented using Apache Airflow, containerized with Docker, and hosted on an AWS EC2 instance. The pipeline is designed to fetch data from various sources, process it, and store the results in different AWS services. The output data is pulled into PowerBI for dashboard reporting.
+This stock perfomance ETL pipeline automates the periodic extraction, transformation and central storage of popular sentiment about a company on X social media, with the changes in the the company's stock prices. This pipeline is implemented using Apache Airflow, containerized with Docker, and hosted on an AWS EC2 instance. The pipeline is designed to fetch data from various sources, process it, and store the results in different AWS services. The output data is pulled into PowerBI for dashboard reporting.
 
 ## Solution Architecture
 
-![Architecture Diagram](images/weather_dashboard_architecture.png)
+![Architecture Diagram](images/stock_dashboard_architecture.png)
 
 
 ## Pipeline Components
@@ -51,7 +51,7 @@ This data pipeline implemented using Apache Airflow, containerized with Docker, 
     - If needed, customize the [DAG file](/dag/stock_perfomance.py) - with its [helper module](/dag/stock_helper_functions.py) - in the `dags` directory.
 
 3. **Update the AWS Cloudformation template**:
-    - If needed, customize the [yaml template file](/infrastucture/pipeline_infra.yml) in the `infrastructure` directory.
+    - If needed, customize the [yaml template file](/infrastructure/pipeline_infra.yml) in the `infrastructure` directory.
 
 4. **Configure AWS Commandline Interface credentials**:
     - From the AWS management console, create a user that will be used for deploying infrastructure and ensure that it has the permissions for the services in the architecture diagram, and ability to interact with aws cloud programmatically.
@@ -61,7 +61,7 @@ This data pipeline implemented using Apache Airflow, containerized with Docker, 
     aws configure
     ```
 
-5. **Deploy the cloud infrastructure using AWS Cloudformation**:  
+5. **Deploy the cloud infrastructure using AWS Cloudformation and airflow service**:  
     If you are using windows, run the [cmd deploy command](./deploy.cmd):
     ```bash
     deploy.cmd
@@ -70,66 +70,42 @@ This data pipeline implemented using Apache Airflow, containerized with Docker, 
     ```bash
     deploy.sh
     ```
+    - AWS Services deployed:
+        - A VPC (with 3 subnets, routing, a security group, and an internet gateway)
+        - 2 S3 Buckets
+        - 2 Dynamodb databases
+        - A RDS PostgreSQL database
+        - A SNS Topic
+    - Airflow Containers deployed:
+        - A webserver (with anaconda and python libraries)
+        - A scheduler
+        - A metastore postgresql database
+        - A worker
 
-6. **Install Docker, Airflow and dependencies into EC2 Instance**:  
-    - Connect to EC2 instance via ssh:  
-    
-    On windows:  
-    ```bash
-    ssh -i %USERPROFILE%\.ssh\stock_perfomance_key.pem ubuntu@%EC2PublicIP%
-    ```
-      On linux:  
-    ```bash
-    ssh -i ~\.ssh\stock_perfomance_key.pem ubuntu@$EC2PublicIP
-    ```
-    - Install docker, airflow and libraries as below:
-    ```bash
-    # Update and install required packages
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl
+6. **Update the Airflow connections and variables**:  
+    WAIT 3 MINUTES FOR THE AIRFLOW SERVICES TO FULLY START - Then access the Airflow web UI and declare the aws connections and dag environment variables (the default airflow webserver username and password is both **airflow**).
+    - VARIABLES:
+        - x_bearer_token (The X API Bearer token)
+        - aws_access_key_id (The AWS Access Key)
+        - aws_secret_access_key (The AWS Secret Key)
+    - CONNECTIONS:
+        - aws_default
+        - aws_rds
 
-    # Create a directory and download the Docker GPG key
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-
-    # Set correct permissions and add Docker repository
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-    # Update repositories and install Docker
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-    # Change to the pipeline directory and download airflow docker-compose file
-    cd ~/pipeline
-    echo -e "AIRFLOW_UID=$(id -u)" > .env
-    curl -LfO 'https://airflow.apache.org/docs/apache-airflow/stable/docker-compose.yaml'
-
-    # Initialize and start Airflow
-    sudo docker compose up airflow-init
-    sudo docker compose up -d
-
-    # Connect to the pipeline-airflow-webserver-1 container and install necessary packages
-    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "curl -O https://repo.anaconda.com/archive/Anaconda3-2023.03-Linux-x86_64.sh"
-    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "bash Anaconda3-2023.03-Linux-x86_64.sh -b"
-    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "echo 'export PATH=~/anaconda3/bin:$PATH' >> ~/.bashrc && source ~/.bashrc"
-    sudo docker exec -it pipeline-airflow-webserver-1 /bin/bash -c "pip install awscli && pip install airflow && pip install apache-airflow-providers-amazon yfinance --upgrade --no-cache-dir"
-    ```
-
-7. **Update the Airflow connections and variables**:
-    - Access the Airflow web UI and declare the aws connections and dag environment variables.
-
-8. **Run the pipeline**:
+7. **Running of the pipeline**:
     - Access the Airflow web UI and trigger the DAG manually or wait for the scheduled run.
 
-9. **Connect PowerBI to pipeline output data and create the dashboard**:
+8. **Connect PowerBI to pipeline output data and create the dashboard**:
     - Connect the AWS RDS Postgresql data source to PowerBI,
-    - Create a stocks perfomance [dashboard](/dashboard/).
+    - Create a stocks perfomance [dashboard](dashboard/stock_perfomance.pbix).
+    ![View of stock perfomance PowerBI dashboard](images/stock-perfomance-dashboard-snapshot.png)
 
 ## Monitoring
 - Monitor the pipeline execution through the Airflow web UI.
+![View of dag runs with their task statuses](images/airflow-dag-runs.png)
 - Check AWS CloudWatch for logs and metrics related to the AWS services used.
 - Check up on the email alerts sent by the airflow pipeline.
+![View of the email alert for pipeline run successes and failures](images/pipeline-email-alert.png)
 
 ## Pipeline Termination
 - To delete the entire data pipeline:  
