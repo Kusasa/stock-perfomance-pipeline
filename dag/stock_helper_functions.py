@@ -44,10 +44,13 @@ def x_fetcher(stock_name = "#Amazon"):
             #print(f"Most popular tweets: {most_popular_tweets['text']}\nRetweets: {most_popular_tweets['public_metrics']['retweet_count']}")
             return most_popular_tweets
     elif response.status_code == 429:
-        sys.path.append('/opt/airflow/dags')
-        with open("/opt/airflow/dags/most_popular_tweets_2024-12-07T21_17_35.json", 'r') as file: 
-            most_popular_tweets = json.load(file)
-        return most_popular_tweets
+        try:
+            sys.path.append('/opt/airflow/dags')
+            with open("/opt/airflow/dags/most_popular_tweets_2024-12-07T21_17_35.json", 'r') as file: 
+                most_popular_tweets = json.load(file)
+            return most_popular_tweets
+        except Exception as e:
+            logging.error(f"Could not fetch data from X API due to error: {e}") 
     else:
         print(f"Failed to fetch tweets: {response.status_code} - {response.text}")
         raise Exception(f"Failed to fetch tweets: {response.status_code} - {response.text}")
